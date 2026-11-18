@@ -1,4 +1,4 @@
-"""Envoltorio del Gesture Recognizer de MediaPipe y descarga de su modelo."""
+"""Wrapper around MediaPipe's Gesture Recognizer, plus model download."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ HAND_MODEL_URL = (
     "gesture_recognizer/float16/latest/gesture_recognizer.task"
 )
 
-# Gestos que el modelo preentrenado sabe reconocer ("None" se excluye a propósito).
+# Gestures the pretrained model can recognize ("None" is excluded on purpose).
 HAND_GESTURES = (
     "Thumb_Up",
     "Thumb_Down",
@@ -30,7 +30,7 @@ HAND_GESTURES = (
 
 @dataclass
 class Detection:
-    """Resultado de un frame: gesto ganador, su confianza y landmarks de cada mano."""
+    """One frame's result: winning gesture, its confidence, and landmarks for each hand."""
 
     gesture: str | None
     score: float
@@ -38,22 +38,22 @@ class Detection:
 
 
 def ensure_model(path: Path, url: str) -> Path:
-    """Descarga el modelo desde `url` a `path` si todavía no existe y devuelve la ruta."""
+    """Download the model from `url` to `path` if it doesn't exist yet, and return the path."""
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Descargando modelo en {path} ...")
+        print(f"Downloading model to {path} ...")
         tmp = path.with_suffix(".part")
         urllib.request.urlretrieve(url, tmp)
-        # Renombrar al final evita dejar un modelo corrupto si se corta la descarga.
+        # Renaming only at the end avoids leaving a corrupt model if the download is interrupted.
         tmp.rename(path)
     return path
 
 
 class GestureDetector:
-    """Detecta gestos de mano frame a frame usando MediaPipe en modo VIDEO."""
+    """Detects hand gestures frame by frame using MediaPipe in VIDEO mode."""
 
     def __init__(self, model_path: Path, min_score: float = 0.6, num_hands: int = 2):
-        """Carga el modelo; `min_score` descarta gestos con poca confianza."""
+        """Load the model; `min_score` discards low-confidence gestures."""
         self.min_score = min_score
         options = vision.GestureRecognizerOptions(
             base_options=mp_tasks.BaseOptions(model_asset_path=str(ensure_model(model_path, HAND_MODEL_URL))),
@@ -64,8 +64,8 @@ class GestureDetector:
         self._last_ts = -1
 
     def detect(self, frame_bgr: np.ndarray, timestamp_ms: int) -> Detection:
-        """Analiza un frame BGR y devuelve el gesto con mayor confianza de todas las manos."""
-        # MediaPipe exige timestamps estrictamente crecientes en modo VIDEO.
+        """Analyze a BGR frame and return the highest-confidence gesture across all hands."""
+        # MediaPipe requires strictly increasing timestamps in VIDEO mode.
         timestamp_ms = max(timestamp_ms, self._last_ts + 1)
         self._last_ts = timestamp_ms
 
@@ -87,5 +87,5 @@ class GestureDetector:
         return Detection(best, best_score, hands)
 
     def close(self) -> None:
-        """Libera los recursos nativos del reconocedor."""
+        """Release the recognizer's native resources."""
         self._recognizer.close()

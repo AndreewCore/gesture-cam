@@ -1,4 +1,4 @@
-"""Pruebas de las reglas de movimiento con esqueletos sintéticos (sin cámara ni MediaPipe)."""
+"""Tests for the movement rules using synthetic skeletons (no camera or MediaPipe)."""
 
 from gesture_cam import movements as m
 from gesture_cam.movements import BodyMoveClassifier
@@ -8,7 +8,7 @@ DT = 1 / FPS
 
 
 def standing(**overrides):
-    """Esqueleto de 33 puntos de pie, brazos caídos; `overrides` = {índice: (x, y)}."""
+    """33-point standing skeleton with arms down; `overrides` = {index: (x, y)}."""
     pts = [(0.5, 0.5)] * 33
     base = {
         m.NOSE: (0.5, 0.15),
@@ -26,12 +26,12 @@ def standing(**overrides):
 
 
 def shifted(landmarks, dy):
-    """Desplaza todo el esqueleto verticalmente (dy negativo = sube)."""
+    """Shift the whole skeleton vertically (negative dy = up)."""
     return [(x, y + dy, v) for x, y, v in landmarks]
 
 
 def squatting():
-    """Esqueleto en sentadilla: tronco más bajo y rodillas hacia fuera."""
+    """Squatting skeleton: lower trunk and knees pointing out."""
     lm = standing()
     upper = {m.NOSE, m.L_SHOULDER, m.R_SHOULDER, m.L_ELBOW, m.R_ELBOW, m.L_WRIST, m.R_WRIST, m.L_HIP, m.R_HIP}
     lm = [(x, y + 0.15, v) if i in upper else (x, y, v) for i, (x, y, v) in enumerate(lm)]
@@ -41,23 +41,23 @@ def squatting():
 
 
 def run(frames, start=0.0):
-    """Pasa una secuencia de frames por un clasificador nuevo y devuelve todos los resultados."""
+    """Run a sequence of frames through a fresh classifier and return every result."""
     clf = BodyMoveClassifier()
     return [clf.classify(lm, start + i * DT) for i, lm in enumerate(frames)]
 
 
 def test_neutral_is_nothing():
-    """De pie y quieto no debe disparar ningún movimiento."""
+    """Standing still must not trigger any movement."""
     assert run([standing()] * 30)[-1] is None
 
 
 def test_no_person_is_nothing():
-    """Sin persona en cuadro no hay movimiento."""
+    """No person in frame means no movement."""
     assert BodyMoveClassifier().classify(None, 0.0) is None
 
 
 def test_arms_up():
-    """Ambas muñecas sobre la nariz."""
+    """Both wrists above the nose."""
     lm = standing()
     lm[m.L_WRIST] = (0.4, 0.05, 0.99)
     lm[m.R_WRIST] = (0.6, 0.05, 0.99)
@@ -65,7 +65,7 @@ def test_arms_up():
 
 
 def test_t_pose():
-    """Brazos extendidos a la altura de los hombros."""
+    """Arms stretched out at shoulder height."""
     lm = standing()
     lm[m.L_ELBOW], lm[m.R_ELBOW] = (0.25, 0.3, 0.99), (0.75, 0.3, 0.99)
     lm[m.L_WRIST], lm[m.R_WRIST] = (0.1, 0.3, 0.99), (0.9, 0.3, 0.99)
@@ -73,7 +73,7 @@ def test_t_pose():
 
 
 def test_hands_on_hips():
-    """Muñecas en las caderas con codos abiertos."""
+    """Wrists on the hips with elbows out."""
     lm = standing()
     lm[m.L_ELBOW], lm[m.R_ELBOW] = (0.3, 0.45, 0.99), (0.7, 0.45, 0.99)
     lm[m.L_WRIST], lm[m.R_WRIST] = (0.44, 0.58, 0.99), (0.56, 0.58, 0.99)
@@ -81,12 +81,12 @@ def test_hands_on_hips():
 
 
 def test_squat():
-    """Rodillas dobladas en ambas piernas."""
+    """Both knees bent."""
     assert run([squatting()])[-1] == "squat"
 
 
 def test_low_visibility_ignored():
-    """Puntos poco visibles no deben activar reglas."""
+    """Barely visible points must not trigger rules."""
     lm = standing()
     lm[m.L_WRIST] = (0.4, 0.05, 0.1)
     lm[m.R_WRIST] = (0.6, 0.05, 0.1)
@@ -94,11 +94,11 @@ def test_low_visibility_ignored():
 
 
 def test_wave():
-    """Mano sobre el hombro moviéndose de lado a lado."""
+    """Hand above the shoulder moving side to side."""
     frames = []
     for i in range(int(1.2 * FPS)):
         lm = standing()
-        # Muñeca sobre el hombro yendo y viniendo cada 0.2 s.
+        # Wrist above the shoulder going back and forth every 0.2 s.
         x = 0.65 if (i // 6) % 2 == 0 else 0.8
         lm[m.R_WRIST] = (x, 0.2, 0.99)
         lm[m.R_ELBOW] = (0.66, 0.35, 0.99)
@@ -107,25 +107,25 @@ def test_wave():
 
 
 def test_raised_hand_still_is_not_wave():
-    """Una mano levantada pero quieta no es un saludo."""
+    """A raised but still hand is not a wave."""
     lm = standing()
     lm[m.R_WRIST] = (0.7, 0.2, 0.99)
     assert "wave" not in run([lm] * 45)
 
 
 def test_jump():
-    """Todo el cuerpo sube de golpe respecto a su posición reciente."""
+    """The whole body rises suddenly compared to its recent position."""
     frames = [standing()] * 20 + [shifted(standing(), -0.1)] * 3
     assert run(frames)[-1] == "jump"
 
 
 def test_jump_is_held_briefly():
-    """El salto se sigue reportando un instante tras aterrizar."""
+    """The jump keeps being reported for a moment after landing."""
     frames = [standing()] * 20 + [shifted(standing(), -0.1)] * 3 + [standing()] * 5
     assert run(frames)[-1] == "jump"
 
 
 def test_standing_up_from_squat_is_not_jump():
-    """Levantarse de una sentadilla sube la cadera pero no los pies: no es salto."""
+    """Standing up from a squat raises the hips but not the feet: not a jump."""
     frames = [squatting()] * 20 + [standing()] * 5
     assert "jump" not in run(frames)

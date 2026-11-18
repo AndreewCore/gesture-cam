@@ -1,7 +1,7 @@
-"""Reconoce movimientos del cuerpo a partir de los landmarks de pose, con reglas geométricas.
+"""Recognizes body movements from pose landmarks using geometric rules.
 
-No depende de MediaPipe: recibe listas de (x, y, visibilidad) normalizadas, así que se
-puede probar con landmarks sintéticos.
+It doesn't depend on MediaPipe: it takes lists of normalized (x, y, visibility), so it
+can be tested with synthetic landmarks.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from collections import deque
 
 BODY_MOVES = ("arms_up", "t_pose", "hands_on_hips", "squat", "wave", "jump")
 
-# Índices del modelo de pose de MediaPipe (33 landmarks).
+# Landmark indices of the MediaPipe pose model (33 landmarks).
 NOSE = 0
 L_SHOULDER, R_SHOULDER = 11, 12
 L_ELBOW, R_ELBOW = 13, 14
@@ -27,38 +27,38 @@ Point = tuple[float, float]
 
 
 class Body:
-    """Landmarks de un frame en unidades comparables, con helpers de visibilidad."""
+    """One frame's landmarks in comparable units, with visibility helpers."""
 
     def __init__(self, landmarks, aspect: float = 1.0):
-        """`aspect` = ancho/alto del frame; corrige que x e y estén normalizados distinto."""
+        """`aspect` = frame width/height; corrects for x and y being normalized differently."""
         self.pts: list[Point] = [(x * aspect, y) for x, y, _ in landmarks]
         self.vis = [v for _, _, v in landmarks]
 
     def visible(self, *idx: int) -> bool:
-        """True si todos los landmarks indicados tienen visibilidad suficiente."""
+        """True if all the given landmarks are visible enough."""
         return all(self.vis[i] > MIN_VISIBILITY for i in idx)
 
     def __getitem__(self, i: int) -> Point:
-        """Acceso directo al punto `i`."""
+        """Direct access to point `i`."""
         return self.pts[i]
 
     def mid(self, a: int, b: int) -> Point:
-        """Punto medio entre dos landmarks."""
+        """Midpoint between two landmarks."""
         (ax, ay), (bx, by) = self.pts[a], self.pts[b]
         return ((ax + bx) / 2, (ay + by) / 2)
 
     def torso_len(self) -> float:
-        """Distancia hombros-caderas: la regla con la que se miden todas las demás distancias."""
+        """Shoulders-to-hips distance: the ruler every other distance is measured with."""
         return max(_dist(self.mid(L_SHOULDER, R_SHOULDER), self.mid(L_HIP, R_HIP)), 1e-6)
 
 
 def _dist(a: Point, b: Point) -> float:
-    """Distancia euclidiana entre dos puntos."""
+    """Euclidean distance between two points."""
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
 def _angle(a: Point, b: Point, c: Point) -> float:
-    """Ángulo en grados en el vértice `b` formado por a-b-c."""
+    """Angle in degrees at vertex `b` formed by a-b-c."""
     v1 = (a[0] - b[0], a[1] - b[1])
     v2 = (c[0] - b[0], c[1] - b[1])
     n = math.hypot(*v1) * math.hypot(*v2)
@@ -69,20 +69,20 @@ def _angle(a: Point, b: Point, c: Point) -> float:
 
 
 def _torso_ok(b: Body) -> bool:
-    """Sin hombros y caderas visibles no hay escala fiable para las reglas."""
+    """Without visible shoulders and hips there is no reliable scale for the rules."""
     return b.visible(L_SHOULDER, R_SHOULDER, L_HIP, R_HIP)
 
 
 def is_arms_up(b: Body) -> bool:
-    """Ambas muñecas por encima de la nariz."""
+    """Both wrists above the nose."""
     if not b.visible(NOSE, L_WRIST, R_WRIST):
         return False
-    # En imagen, y crece hacia abajo: "arriba" es y menor.
+    # In image coordinates y grows downward, so "above" means a smaller y.
     return b[L_WRIST][1] < b[NOSE][1] and b[R_WRIST][1] < b[NOSE][1]
 
 
 def is_t_pose(b: Body) -> bool:
-    """Brazos extendidos en horizontal: muñecas y codos a la altura de los hombros y lejos del cuerpo."""
+    """Arms stretched out horizontally: wrists and elbows at shoulder height and far from the body."""
     if not (_torso_ok(b) and b.visible(L_ELBOW, R_ELBOW, L_WRIST, R_WRIST)):
         return False
     t = b.torso_len()
@@ -98,7 +98,7 @@ def is_t_pose(b: Body) -> bool:
 
 
 def is_hands_on_hips(b: Body) -> bool:
-    """Muñecas junto a las caderas con los codos abiertos hacia fuera."""
+    """Wrists next to the hips with the elbows pointing outward."""
     if not (_torso_ok(b) and b.visible(L_ELBOW, R_ELBOW, L_WRIST, R_WRIST)):
         return False
     t = b.torso_len()
@@ -107,14 +107,14 @@ def is_hands_on_hips(b: Body) -> bool:
     for w, h, e in ((L_WRIST, L_HIP, L_ELBOW), (R_WRIST, R_HIP, R_ELBOW)):
         if _dist(b[w], b[h]) > 0.45 * t:
             return False
-        # Con los brazos colgando los codos quedan pegados al cuerpo; en jarra salen hacia fuera.
+        # With arms hanging the elbows stay close to the body; with hands on hips they stick out.
         if abs(b[e][0] - cx) < half_shoulders + 0.15 * t:
             return False
     return True
 
 
 def is_squat(b: Body) -> bool:
-    """Ambas rodillas dobladas (ángulo cadera-rodilla-tobillo menor a ~120°)."""
+    """Both knees bent (hip-knee-ankle angle under ~120°)."""
     if not b.visible(L_HIP, R_HIP, L_KNEE, R_KNEE, L_ANKLE, R_ANKLE):
         return False
     return (
@@ -124,22 +124,22 @@ def is_squat(b: Body) -> bool:
 
 
 class MotionTracker:
-    """Detecta movimientos que necesitan historia (saludo y salto) a partir de varios frames."""
+    """Detects movements that need history (wave and jump) across several frames."""
 
     WAVE_WINDOW = 1.5  # s
     WAVE_REVERSALS = 3
-    WAVE_AMPLITUDE = 0.15  # en largos de torso
+    WAVE_AMPLITUDE = 0.15  # in torso lengths
     JUMP_WINDOW = 1.5  # s
-    JUMP_RISE = 0.25  # en largos de torso
+    JUMP_RISE = 0.25  # in torso lengths
     FEET_RISE = 0.15
 
     def __init__(self):
-        """Inicializa el historial vacío de muñecas y caderas."""
+        """Start with empty wrist and hip histories."""
         self._wrists = {L_WRIST: deque(), R_WRIST: deque()}
-        self._hips: deque[tuple[float, float, float | None]] = deque()  # (t, cadera_y, pies_y)
+        self._hips: deque[tuple[float, float, float | None]] = deque()  # (t, hip_y, feet_y)
 
     def update(self, b: Body, now: float) -> str | None:
-        """Registra el frame y devuelve 'jump', 'wave' o None."""
+        """Record the frame and return 'jump', 'wave' or None."""
         if not _torso_ok(b):
             self.reset()
             return None
@@ -149,13 +149,13 @@ class MotionTracker:
         return "jump" if jump else "wave" if wave else None
 
     def reset(self) -> None:
-        """Olvida la historia, p. ej. cuando la persona sale de cuadro."""
+        """Forget the history, e.g. when the person leaves the frame."""
         for d in self._wrists.values():
             d.clear()
         self._hips.clear()
 
     def _update_wave(self, b: Body, t: float, now: float) -> bool:
-        """Saludo: una muñeca sobre su hombro que cambia de dirección en x varias veces."""
+        """Wave: a wrist above its shoulder that changes x direction several times."""
         cx = b.mid(L_SHOULDER, R_SHOULDER)[0]
         waving = False
         for w, s in ((L_WRIST, L_SHOULDER), (R_WRIST, R_SHOULDER)):
@@ -163,7 +163,7 @@ class MotionTracker:
             if not b.visible(w) or b[w][1] > b[s][1]:
                 hist.clear()
                 continue
-            # Posición relativa al cuerpo y en largos de torso: inmune a acercarse o moverse de lado.
+            # Position relative to the body and in torso lengths: unaffected by stepping closer or sideways.
             hist.append((now, (b[w][0] - cx) / t))
             while hist and now - hist[0][0] > self.WAVE_WINDOW:
                 hist.popleft()
@@ -172,9 +172,9 @@ class MotionTracker:
         return waving
 
     def _update_jump(self, b: Body, t: float, now: float) -> bool:
-        """Salto: caderas (y pies, si se ven) suben rápido respecto a su posición reciente."""
-        # Se guarda y crudo y se divide por el torso actual al comparar: dividir cada muestra
-        # por su propio torso falsea la subida si el torso cambia de tamaño aparente.
+        """Jump: hips (and feet, if visible) rise quickly compared to their recent position."""
+        # Store raw y and divide by the current torso when comparing: dividing each sample by
+        # its own torso distorts the rise if the torso's apparent size changes.
         hip_y = b.mid(L_HIP, R_HIP)[1]
         feet_y = b.mid(L_ANKLE, R_ANKLE)[1] if b.visible(L_ANKLE, R_ANKLE) else None
         self._hips.append((now, hip_y, feet_y))
@@ -186,7 +186,7 @@ class MotionTracker:
         base_hip = statistics.median(h for _, h, _ in self._hips)
         if (base_hip - hip_y) / t < self.JUMP_RISE:
             return False
-        # Levantarse de una sentadilla también sube la cadera; exigir que suban los pies lo distingue.
+        # Standing up from a squat also raises the hips; requiring the feet to rise tells them apart.
         feet = [f for _, _, f in self._hips if f is not None]
         if feet_y is not None and len(feet) >= 5:
             return (statistics.median(feet) - feet_y) / t >= self.FEET_RISE
@@ -194,14 +194,14 @@ class MotionTracker:
 
 
 def _count_reversals(xs: list[float], amplitude: float) -> int:
-    """Cuenta cambios de dirección en `xs` que superan `amplitude` (ignora temblores)."""
+    """Count direction changes in `xs` larger than `amplitude` (ignores jitter)."""
     if len(xs) < 3:
         return 0
     reversals, direction = 0, 0
     lo = hi = extreme = xs[0]
     for x in xs[1:]:
         if direction == 0:
-            # Aún sin dirección: esperamos el primer desplazamiento claro hacia algún lado.
+            # No direction yet: wait for the first clear move to either side.
             lo, hi = min(lo, x), max(hi, x)
             if x - lo >= amplitude:
                 direction, extreme = 1, x
@@ -221,18 +221,18 @@ def _count_reversals(xs: list[float], amplitude: float) -> int:
 
 
 class BodyMoveClassifier:
-    """Combina reglas estáticas y de movimiento en un único resultado por frame."""
+    """Combines static and motion rules into a single result per frame."""
 
-    MOTION_HOLD = 0.6  # s: un salto dura un instante, se retiene para que se vea la imagen.
+    MOTION_HOLD = 0.6  # s: a jump lasts an instant, so it is held long enough for the image to show.
 
     def __init__(self):
-        """Crea el tracker de movimiento y el estado del último evento."""
+        """Create the motion tracker and the last-event state."""
         self.motion = MotionTracker()
         self._event: str | None = None
         self._event_time = -math.inf
 
     def classify(self, landmarks, now: float, aspect: float = 1.0) -> str | None:
-        """Devuelve el movimiento del frame con prioridad salto > saludo > poses estáticas."""
+        """Return the frame's movement with priority jump > wave > static poses."""
         if landmarks is None:
             self.motion.reset()
             return None
@@ -244,7 +244,7 @@ class BodyMoveClassifier:
         if self._event is not None and now - self._event_time <= self.MOTION_HOLD:
             return self._event
 
-        # La sentadilla va antes que manos en caderas: al agacharse se pueden cumplir ambas.
+        # Squat goes before hands on hips: when crouching both can match.
         for name, rule in (
             ("arms_up", is_arms_up),
             ("t_pose", is_t_pose),

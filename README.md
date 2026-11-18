@@ -1,83 +1,83 @@
 # Gesture Cam
 
-Abre tu cámara y superpone imágenes según lo que hagas:
+Opens your camera and overlays images based on what you do:
 
-- **Gestos de mano** (pulgar arriba, V, puño…) → imagen en el **centro**.
-- **Movimientos del cuerpo** (brazos arriba, T, saludo, salto…) → imagen **arriba**, y tu **esqueleto** dibujado sobre el video.
+- **Hand gestures** (thumbs up, V sign, fist…) → image in the **center**.
+- **Body movements** (arms up, T-pose, wave, jump…) → image at the **top**, with your **skeleton** drawn over the video.
 
-Ambos funcionan a la vez: puedes tener una imagen de mano y otra de cuerpo en pantalla al mismo tiempo.
+Both run at the same time: a hand image and a body image can be on screen together.
 
-## Ejecutar
+## Run
 
 ```bash
 uv sync
 uv run gesture-cam
 ```
 
-La primera vez descarga los modelos de MediaPipe a `models/` y crea imágenes de ejemplo en `images/`.
+On first run it downloads the MediaPipe models to `models/` and creates sample images in `images/`.
 
-### Opciones
+### Options
 
-| Opción | Efecto |
+| Option | Effect |
 |---|---|
-| `--camera 1` | Usar otra cámara |
-| `--windowed` | Arrancar en ventana |
-| `--min-score 0.7` | Confianza mínima para gestos de mano |
-| `--size 0.5` | Alto de la imagen de mano (relativo al video) |
-| `--body-size 0.3` | Alto de la imagen de cuerpo |
-| `--no-hands` / `--no-pose` | Desactivar una de las dos detecciones (si va lento) |
-| `--images otra/carpeta` | Carpeta de imágenes alternativa |
+| `--camera 1` | Use another camera |
+| `--windowed` | Start in a window instead of fullscreen |
+| `--min-score 0.7` | Minimum confidence for hand gestures |
+| `--size 0.5` | Hand image height (relative to the video) |
+| `--body-size 0.3` | Body image height |
+| `--no-hands` / `--no-pose` | Turn off one of the two detections (if it runs slowly) |
+| `--images other/folder` | Use a different images folder |
 
-### Teclas
+### Keys
 
-| Tecla | Acción |
+| Key | Action |
 |---|---|
-| `Q` / `Esc` | Salir |
-| `F` | Pantalla completa on/off |
-| `S` | Mostrar/ocultar esqueleto |
-| `D` | Modo debug (puntos de la mano y detección cruda de mano y cuerpo) |
+| `Q` / `Esc` | Quit |
+| `F` | Toggle fullscreen |
+| `S` | Show/hide the skeleton |
+| `D` | Debug mode (hand points and raw hand and body detections) |
 
-## Imágenes
+## Images
 
-Pon tus imágenes en `images/` con estos nombres (`.png`, `.webp`, `.jpg` o `.jpeg`; PNG con transparencia queda mejor). Si borras una, se regenera un ejemplo al arrancar.
+Put your images in `images/` with these names (`.png`, `.webp`, `.jpg` or `.jpeg`; a PNG with transparency looks best). If you delete one, a sample is regenerated on the next start.
 
-**Mano (centro)**
+**Hand (center)**
 
-| Gesto | Archivo |
+| Gesture | File |
 |---|---|
-| 👍 Pulgar arriba | `thumb_up.png` |
-| 👎 Pulgar abajo | `thumb_down.png` |
-| ✌️ Victoria / V | `victory.png` |
-| ✋ Palma abierta | `open_palm.png` |
-| ✊ Puño | `closed_fist.png` |
-| ☝️ Índice arriba | `pointing_up.png` |
-| 🤟 Te quiero | `iloveyou.png` |
+| 👍 Thumbs up | `thumb_up.png` |
+| 👎 Thumbs down | `thumb_down.png` |
+| ✌️ Victory / V sign | `victory.png` |
+| ✋ Open palm | `open_palm.png` |
+| ✊ Fist | `closed_fist.png` |
+| ☝️ Pointing up | `pointing_up.png` |
+| 🤟 I love you | `iloveyou.png` |
 
-**Cuerpo (arriba)**
+**Body (top)**
 
-| Movimiento | Archivo |
+| Movement | File |
 |---|---|
-| 🙌 Ambos brazos arriba | `arms_up.png` |
-| ✝️ Pose en T | `t_pose.png` |
-| 🧍 Manos en la cintura | `hands_on_hips.png` |
-| 🏋️ Sentadilla | `squat.png` |
-| 👋 Saludo (mano moviéndose sobre el hombro) | `wave.png` |
-| 🦘 Salto | `jump.png` |
+| 🙌 Both arms up | `arms_up.png` |
+| ✝️ T-pose | `t_pose.png` |
+| 🧍 Hands on hips | `hands_on_hips.png` |
+| 🏋️ Squat | `squat.png` |
+| 👋 Wave (hand moving above the shoulder) | `wave.png` |
+| 🦘 Jump | `jump.png` |
 
-## Cómo funciona
+## How it works
 
-Cada frame de la cámara (en espejo) pasa por dos modelos preentrenados de [MediaPipe](https://ai.google.dev/edge/mediapipe), que se ejecutan localmente:
+Every camera frame (mirrored) goes through two pretrained [MediaPipe](https://ai.google.dev/edge/mediapipe) models that run locally:
 
-1. **Gesture Recognizer** (`recognizer.py`): localiza hasta 2 manos (21 puntos cada una) y clasifica su forma en 7 gestos con una confianza. Gana el gesto con mayor confianza por encima de `--min-score`.
-2. **Pose Landmarker** (`pose.py`): devuelve 33 puntos del cuerpo (nariz, hombros, codos, muñecas, caderas, rodillas, tobillos…) con su visibilidad. Con ellos se dibuja el esqueleto.
+1. **Gesture Recognizer** (`recognizer.py`): finds up to 2 hands (21 points each) and classifies the hand shape into 7 gestures with a confidence score. The highest-confidence gesture above `--min-score` wins.
+2. **Pose Landmarker** (`pose.py`): returns 33 body points (nose, shoulders, elbows, wrists, hips, knees, ankles…) with their visibility. These are used to draw the skeleton.
 
-Los movimientos del cuerpo (`movements.py`) son **reglas geométricas** sobre esos puntos, medidas en "largos de torso" para que funcionen cerca o lejos de la cámara:
+Body movements (`movements.py`) are **geometric rules** on those points, measured in "torso lengths" so they work whether you are close to the camera or far away:
 
-- **Poses estáticas** (un frame): muñecas sobre la nariz → brazos arriba; muñecas a la altura de los hombros y lejos → T; muñecas junto a la cadera con codos abiertos → cintura; ángulo cadera-rodilla-tobillo < 120° → sentadilla.
-- **Movimientos** (historial de ~1.5 s): una muñeca sobre el hombro que cambia de dirección 3+ veces → saludo; caderas y pies que suben de golpe respecto a su posición reciente → salto (levantarse de una sentadilla no cuenta porque los pies no suben).
-- Prioridad: salto > saludo > poses estáticas.
+- **Static poses** (single frame): wrists above the nose → arms up; wrists at shoulder height and far out → T-pose; wrists by the hips with elbows out → hands on hips; hip-knee-ankle angle < 120° → squat.
+- **Motion** (about 1.5 s of history): a wrist above the shoulder that changes direction 3+ times → wave; hips and feet rising suddenly compared to their recent position → jump (standing up from a squat doesn't count because the feet don't rise).
+- Priority: jump > wave > static poses.
 
-Para evitar parpadeos, cada canal (mano y cuerpo) tiene su propio **estabilizador**: el resultado debe repetirse unos frames seguidos para activarse y se mantiene un instante tras desaparecer. Las imágenes se mezclan con transparencia sobre el video (`overlay.py`).
+To avoid flicker, each channel (hand and body) has its own **stabilizer**: a result has to repeat for a few frames in a row to activate, and stays for a moment after it disappears. Images are alpha-blended over the video (`overlay.py`).
 
 ## Tests
 
@@ -85,4 +85,4 @@ Para evitar parpadeos, cada canal (mano y cuerpo) tiene su propio **estabilizado
 uv run pytest
 ```
 
-Prueban las reglas de movimiento con esqueletos sintéticos, sin cámara.
+They check the movement rules with synthetic skeletons, no camera needed.

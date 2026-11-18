@@ -1,4 +1,4 @@
-"""Envoltorio del Pose Landmarker de MediaPipe: 33 puntos del cuerpo por frame."""
+"""Wrapper around MediaPipe's Pose Landmarker: 33 body points per frame."""
 
 from __future__ import annotations
 
@@ -16,18 +16,18 @@ POSE_MODEL_URL = (
     "pose_landmarker_full/float16/latest/pose_landmarker_full.task"
 )
 
-# Pares (a, b) de índices de landmarks que forman los huesos del esqueleto.
+# (a, b) landmark index pairs that form the bones of the skeleton.
 POSE_CONNECTIONS = [(c.start, c.end) for c in vision.PoseLandmarksConnections.POSE_LANDMARKS]
 
-# Cada landmark se representa como (x, y, visibilidad), con x/y normalizados a 0-1.
+# Each landmark is (x, y, visibility), with x/y normalized to 0-1.
 Landmark = tuple[float, float, float]
 
 
 class PoseDetector:
-    """Detecta el esqueleto de una persona frame a frame usando MediaPipe en modo VIDEO."""
+    """Detects one person's skeleton frame by frame using MediaPipe in VIDEO mode."""
 
     def __init__(self, model_path: Path):
-        """Carga (y descarga si hace falta) el modelo de pose."""
+        """Load (and download if needed) the pose model."""
         options = vision.PoseLandmarkerOptions(
             base_options=mp_tasks.BaseOptions(
                 model_asset_path=str(ensure_model(model_path, POSE_MODEL_URL))
@@ -39,8 +39,8 @@ class PoseDetector:
         self._last_ts = -1
 
     def detect(self, frame_bgr: np.ndarray, timestamp_ms: int) -> list[Landmark] | None:
-        """Devuelve los 33 landmarks de la persona detectada, o None si no hay nadie."""
-        # MediaPipe exige timestamps estrictamente crecientes en modo VIDEO.
+        """Return the 33 landmarks of the detected person, or None if nobody is in frame."""
+        # MediaPipe requires strictly increasing timestamps in VIDEO mode.
         timestamp_ms = max(timestamp_ms, self._last_ts + 1)
         self._last_ts = timestamp_ms
 
@@ -52,5 +52,5 @@ class PoseDetector:
         return [(lm.x, lm.y, lm.visibility or 0.0) for lm in result.pose_landmarks[0]]
 
     def close(self) -> None:
-        """Libera los recursos nativos del detector."""
+        """Release the detector's native resources."""
         self._landmarker.close()
