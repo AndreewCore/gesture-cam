@@ -18,6 +18,13 @@ _STYLE = {
     "Closed_Fist": ((50, 50, 50), "POW!"),
     "Pointing_Up": ((200, 80, 180), "IDEA!"),
     "ILoveYou": ((150, 60, 230), "LOVE"),
+    # Movimientos del cuerpo.
+    "arms_up": ((0, 140, 255), "ARMS UP"),
+    "t_pose": ((180, 120, 0), "T-POSE"),
+    "hands_on_hips": ((120, 0, 120), "HIPS"),
+    "squat": ((0, 100, 200), "SQUAT"),
+    "wave": ((0, 200, 160), "HI!"),
+    "jump": ((30, 30, 200), "JUMP!"),
 }
 
 

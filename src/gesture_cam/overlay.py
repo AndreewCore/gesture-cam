@@ -64,3 +64,18 @@ def blend(frame: np.ndarray, img_bgra: np.ndarray, x: int, y: int, opacity: floa
     alpha = (src[:, :, 3:4].astype(np.float32) / 255.0) * opacity
     roi = frame[y0:y1, x0:x1].astype(np.float32)
     frame[y0:y1, x0:x1] = (src[:, :, :3] * alpha + roi * (1.0 - alpha)).astype(np.uint8)
+
+
+def draw_skeleton(frame: np.ndarray, landmarks, connections, min_visibility: float = 0.5) -> None:
+    """Dibuja huesos y articulaciones del esqueleto (in-place), omitiendo puntos poco visibles."""
+    h, w = frame.shape[:2]
+    pts = [(int(x * w), int(y * h)) if v > min_visibility else None for x, y, v in landmarks]
+    for a, b in connections:
+        if pts[a] and pts[b]:
+            # Borde oscuro debajo para que las líneas se vean sobre fondos claros.
+            cv2.line(frame, pts[a], pts[b], (40, 40, 40), 7, cv2.LINE_AA)
+            cv2.line(frame, pts[a], pts[b], (255, 230, 80), 3, cv2.LINE_AA)
+    for p in pts:
+        if p:
+            cv2.circle(frame, p, 5, (40, 40, 40), -1, cv2.LINE_AA)
+            cv2.circle(frame, p, 3, (80, 120, 255), -1, cv2.LINE_AA)

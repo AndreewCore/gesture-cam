@@ -11,13 +11,13 @@ import numpy as np
 from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision
 
-MODEL_URL = (
+HAND_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/"
     "gesture_recognizer/float16/latest/gesture_recognizer.task"
 )
 
 # Gestos que el modelo preentrenado sabe reconocer ("None" se excluye a propósito).
-GESTURES = (
+HAND_GESTURES = (
     "Thumb_Up",
     "Thumb_Down",
     "Victory",
@@ -37,13 +37,13 @@ class Detection:
     hands: list[list[tuple[float, float]]]
 
 
-def ensure_model(path: Path) -> Path:
-    """Descarga el modelo a `path` si todavía no existe y devuelve la ruta."""
+def ensure_model(path: Path, url: str) -> Path:
+    """Descarga el modelo desde `url` a `path` si todavía no existe y devuelve la ruta."""
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Descargando modelo de gestos en {path} ...")
+        print(f"Descargando modelo en {path} ...")
         tmp = path.with_suffix(".part")
-        urllib.request.urlretrieve(MODEL_URL, tmp)
+        urllib.request.urlretrieve(url, tmp)
         # Renombrar al final evita dejar un modelo corrupto si se corta la descarga.
         tmp.rename(path)
     return path
@@ -56,7 +56,7 @@ class GestureDetector:
         """Carga el modelo; `min_score` descarta gestos con poca confianza."""
         self.min_score = min_score
         options = vision.GestureRecognizerOptions(
-            base_options=mp_tasks.BaseOptions(model_asset_path=str(ensure_model(model_path))),
+            base_options=mp_tasks.BaseOptions(model_asset_path=str(ensure_model(model_path, HAND_MODEL_URL))),
             running_mode=vision.RunningMode.VIDEO,
             num_hands=num_hands,
         )
@@ -78,7 +78,7 @@ class GestureDetector:
             if not categories:
                 continue
             top = categories[0]
-            if top.category_name in GESTURES and top.score > best_score:
+            if top.category_name in HAND_GESTURES and top.score > best_score:
                 best, best_score = top.category_name, top.score
 
         hands = [[(lm.x, lm.y) for lm in hand] for hand in result.hand_landmarks]
