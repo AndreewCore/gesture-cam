@@ -1,1 +1,1 @@
-"""Cámara con imágenes superpuestas según gestos de la mano."""
+"""Camera that overlays images based on hand gestures and body movements."""
