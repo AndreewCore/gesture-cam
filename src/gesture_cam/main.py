@@ -1,7 +1,8 @@
-"""Entry point: shows the camera and plays a video in step with a gesture sequence.
+"""Entry point: a menu to pick the camera mode, then the capture → detection → overlay loop.
 
-The hand-gesture and body-movement images are commented out (marked DISABLED(video-sequence))
-so they don't overlap with the sequence; uncomment those blocks to bring them back.
+Modes:
+- Gestos: images for hand gestures (center) and body movements (top).
+- Polnareff: plays the video in step with its gesture sequence.
 """
 
 from __future__ import annotations
@@ -13,14 +14,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# DISABLED(video-sequence): imports for the hand/body image overlays.
-# from .movements import BODY_MOVES, BodyMoveClassifier
-# from .overlay import load_gesture_images
-# from .placeholders import ensure_placeholders
-# from .recognizer import HAND_GESTURES
-from .overlay import blend, draw_skeleton, fit_height
+from .menu import Menu, MenuOption
+from .movements import BODY_MOVES, BodyMoveClassifier
+from .overlay import blend, draw_skeleton, fit_height, load_gesture_images
+from .placeholders import ensure_placeholders
 from .pose import POSE_CONNECTIONS, PoseDetector
-from .recognizer import GestureDetector
+from .recognizer import HAND_GESTURES, GestureDetector
 from .sequence import FROZEN, STEPS, VideoSequence
 from .sequence_rules import detect_steps
 from .video import VideoPlayer, find_video
@@ -28,6 +27,12 @@ from .video import VideoPlayer, find_video
 WINDOW = "Gesture Cam"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FADE_SECONDS = 0.2
+
+GESTOS, POLNAREFF = "gestos", "polnareff"
+MENU_OPTIONS = [
+    MenuOption(GESTOS, "Gestos", "Hand & body images", "1"),
+    MenuOption(POLNAREFF, "Polnareff", "Follow the video's gestures", "2"),
+]
 
 
 class GestureStabilizer:
@@ -86,21 +91,80 @@ class ImageLayer:
         blend(frame, img, x, y, min(1.0, (now - since) / FADE_SECONDS))
 
 
+class GesturesMode:
+    """'Gestos' mode: an image for the current hand gesture and another for the body movement."""
+
+    def __init__(self, images: dict[str, np.ndarray], hand_size: float, body_size: float):
+        """Split the images into the hand layer (center) and the body layer (top)."""
+        self.hand_layer = ImageLayer({k: v for k, v in images.items() if k in HAND_GESTURES}, hand_size, "center")
+        self.body_layer = ImageLayer({k: v for k, v in images.items() if k in BODY_MOVES}, body_size, "top")
+        self.reset()
+
+    def reset(self) -> None:
+        """Start clean so a gesture from before switching modes doesn't linger."""
+        self.hand_stab = GestureStabilizer()
+        # Fewer frames to activate: motion events are already held by the classifier.
+        self.body_stab = GestureStabilizer(frames_to_activate=3, hold_seconds=0.4)
+        self.classifier = BodyMoveClassifier()
+
+    def process(self, frame: np.ndarray, hand_det, landmarks, now: float) -> list[str]:
+        """Update the stabilizers, draw the images and return the debug lines."""
+        fh, fw = frame.shape[:2]
+        hand = self.hand_stab.update(hand_det.gesture if hand_det else None, now)
+        raw_move = self.classifier.classify(landmarks, now, aspect=fw / fh)
+        body = self.body_stab.update(raw_move, now)
+        self.body_layer.draw(frame, body, self.body_stab.active_since, now)
+        self.hand_layer.draw(frame, hand, self.hand_stab.active_since, now)
+        return [f"body: {raw_move or '-'}"]
+
+
+class PolnareffMode:
+    """'Polnareff' mode: the video plays in a corner while the person repeats its gestures."""
+
+    def __init__(self, player: VideoPlayer, video_size: float):
+        """`video_size` is the video window's height relative to the camera frame."""
+        self.player = player
+        self.video_size = video_size
+        self.sequence = VideoSequence(video_length=player.duration)
+
+    def reset(self) -> None:
+        """Hide the video and wait for the first gesture again."""
+        self.sequence.reset()
+
+    def process(self, frame: np.ndarray, hand_det, landmarks, now: float) -> list[str]:
+        """Advance the sequence, draw the video and return the debug lines."""
+        fh, fw = frame.shape[:2]
+        steps = detect_steps(hand_det, landmarks, aspect=fw / fh)
+        playhead = self.sequence.update(steps, now)
+        if playhead is not None:
+            label = f"Frozen {self.sequence.frozen_for(now):.1f} s" if self.sequence.state == FROZEN else None
+            self.player.draw(frame, playhead, self.video_size, label)
+        seq = self.sequence
+        return [
+            f"steps: {', '.join(sorted(steps)) or '-'}",
+            f"sequence: {seq.state} - step {seq.step_index + 1}/{len(STEPS)} ({STEPS[seq.step_index].name})",
+        ]
+
+    def close(self) -> None:
+        """Release the video file."""
+        self.player.close()
+
+
 def parse_args() -> argparse.Namespace:
     """Command-line options."""
-    p = argparse.ArgumentParser(description="Camera that plays a video in step with a gesture sequence.")
+    p = argparse.ArgumentParser(description="Camera with gesture modes: Gestos (images) and Polnareff (video).")
+    p.add_argument("--mode", choices=(GESTOS, POLNAREFF), help="Start in this mode instead of the menu")
     p.add_argument("--camera", type=int, default=0, help="Camera index (default 0)")
-    # DISABLED(video-sequence): options for the hand/body images.
-    # p.add_argument("--images", type=Path, default=PROJECT_ROOT / "images", help="Images folder")
-    # p.add_argument("--size", type=float, default=0.35, help="Hand image height relative to the video")
-    # p.add_argument("--body-size", type=float, default=0.25, help="Body image height relative to the video")
-    p.add_argument("--video", type=Path, default=None, help="Sequence video (default: first video in videos/)")
+    p.add_argument("--images", type=Path, default=PROJECT_ROOT / "images", help="Images folder (Gestos)")
+    p.add_argument("--size", type=float, default=0.35, help="Hand image height relative to the video (Gestos)")
+    p.add_argument("--body-size", type=float, default=0.25, help="Body image height relative to the video (Gestos)")
+    p.add_argument("--video", type=Path, default=None, help="Polnareff video (default: first video in videos/)")
     p.add_argument("--video-size", type=float, default=0.35, help="Video window height relative to the camera")
     p.add_argument("--model", type=Path, default=PROJECT_ROOT / "models" / "gesture_recognizer.task")
     p.add_argument("--pose-model", type=Path, default=PROJECT_ROOT / "models" / "pose_landmarker_full.task")
     p.add_argument("--min-score", type=float, default=0.6, help="Minimum gesture confidence (0-1)")
-    p.add_argument("--no-hands", action="store_true", help="Disable hand gestures")
-    p.add_argument("--no-pose", action="store_true", help="Disable skeleton and body movements")
+    p.add_argument("--no-hands", action="store_true", help="Disable hand detection")
+    p.add_argument("--no-pose", action="store_true", help="Disable skeleton and body detection")
     p.add_argument("--windowed", action="store_true", help="Start windowed instead of fullscreen")
     return p.parse_args()
 
@@ -111,8 +175,8 @@ def set_fullscreen(on: bool) -> None:
     cv2.setWindowProperty(WINDOW, cv2.WND_PROP_FULLSCREEN, mode)
 
 
-def draw_debug(frame, hand_detection, steps: set[str], sequence: VideoSequence) -> None:
-    """Draw the hand points, the steps detected this frame and the sequence state."""
+def draw_debug(frame, hand_detection, mode_lines: list[str]) -> None:
+    """Draw the hand points, the raw hand gesture and the active mode's own debug lines."""
     h, w = frame.shape[:2]
     lines = []
     if hand_detection is not None:
@@ -120,35 +184,50 @@ def draw_debug(frame, hand_detection, steps: set[str], sequence: VideoSequence) 
             for x, y in hand:
                 cv2.circle(frame, (int(x * w), int(y * h)), 4, (0, 255, 0), -1, cv2.LINE_AA)
         lines.append(f"hand: {hand_detection.gesture or '-'} ({hand_detection.score:.2f})")
-    lines.append(f"steps: {', '.join(sorted(steps)) or '-'}")
-    current = STEPS[sequence.step_index].name
-    lines.append(f"sequence: {sequence.state} - step {sequence.step_index + 1}/{len(STEPS)} ({current})")
+    lines += mode_lines
     for i, text in enumerate(lines):
         org = (20, h - 30 - 35 * (len(lines) - 1 - i))
         cv2.putText(frame, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 4, cv2.LINE_AA)
         cv2.putText(frame, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2, cv2.LINE_AA)
 
 
+def build_modes(args) -> tuple[dict[str, GesturesMode | PolnareffMode], dict[str, str]]:
+    """Create every mode that can run; return them plus the reason each missing one is unavailable."""
+    names = HAND_GESTURES + BODY_MOVES
+    created = ensure_placeholders(args.images, names)
+    if created:
+        print(f"Sample images created in {args.images}: {', '.join(created)}")
+    modes: dict[str, GesturesMode | PolnareffMode] = {
+        GESTOS: GesturesMode(load_gesture_images(args.images, names), args.size, args.body_size),
+    }
+    unavailable: dict[str, str] = {}
+
+    video = args.video or find_video(PROJECT_ROOT / "videos")
+    if video is None:
+        unavailable[POLNAREFF] = "No video in videos/"
+    else:
+        try:
+            modes[POLNAREFF] = PolnareffMode(VideoPlayer(video), args.video_size)
+        except ValueError as exc:
+            print(exc)
+            unavailable[POLNAREFF] = "Could not open the video"
+    return modes, unavailable
+
+
 def main() -> None:
-    """Open the camera and run the capture → detection (hand + body) → overlay loop."""
+    """Open the camera, show the mode menu and run the loop for the chosen mode."""
     args = parse_args()
-    if args.no_hands or args.no_pose:
-        # The sequence mixes hand steps (V, OK) with pose steps (hands together, salute).
-        print("Warning: with --no-hands or --no-pose some sequence steps can't be detected.")
     if args.no_hands and args.no_pose:
         raise SystemExit("--no-hands and --no-pose together leave the app with nothing to detect.")
+    if args.no_hands or args.no_pose:
+        # Polnareff mixes hand steps (V, OK) with pose steps (hands together, salute).
+        print("Warning: with --no-hands or --no-pose some Polnareff steps can't be detected.")
 
-    # DISABLED(video-sequence): hand/body image layers.
-    # names = HAND_GESTURES + BODY_MOVES
-    # created = ensure_placeholders(args.images, names)
-    # if created:
-    #     print(f"Sample images created in {args.images}: {', '.join(created)}")
-    # images = load_gesture_images(args.images, names)
-    # hand_layer = ImageLayer({k: v for k, v in images.items() if k in HAND_GESTURES}, args.size, "center")
-    # body_layer = ImageLayer({k: v for k, v in images.items() if k in BODY_MOVES}, args.body_size, "top")
-
-    player = VideoPlayer(args.video or find_video(PROJECT_ROOT / "videos"))
-    sequence = VideoSequence(video_length=player.duration)
+    modes, unavailable = build_modes(args)
+    if args.mode in unavailable:
+        raise SystemExit(f"Mode {args.mode} is unavailable: {unavailable[args.mode]}")
+    menu = Menu(MENU_OPTIONS)
+    menu.disabled = unavailable
 
     cap = cv2.VideoCapture(args.camera)
     if not cap.isOpened():
@@ -158,16 +237,13 @@ def main() -> None:
 
     hand_detector = None if args.no_hands else GestureDetector(args.model, min_score=args.min_score)
     pose_detector = None if args.no_pose else PoseDetector(args.pose_model)
-    # DISABLED(video-sequence): stabilizers and body-movement classifier.
-    # hand_stab = GestureStabilizer()
-    # # Fewer frames to activate: motion events are already held by the classifier.
-    # body_stab = GestureStabilizer(frames_to_activate=3, hold_seconds=0.4)
-    # classifier = BodyMoveClassifier()
 
     cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
+    cv2.setMouseCallback(WINDOW, menu.on_mouse)
     fullscreen = not args.windowed
     set_fullscreen(fullscreen)
     debug, show_skeleton = False, True
+    active: str | None = args.mode  # None = showing the menu
     start = time.monotonic()
 
     try:
@@ -178,38 +254,33 @@ def main() -> None:
                 break
             # Mirror the image so moving feels natural, like a real mirror.
             frame = cv2.flip(frame, 1)
-            fh, fw = frame.shape[:2]
             now = time.monotonic()
-            ts = int((now - start) * 1000)
 
-            hand_det = hand_detector.detect(frame, ts) if hand_detector else None
-            # DISABLED(video-sequence): hand = hand_stab.update(hand_det.gesture if hand_det else None, now)
-
-            landmarks = pose_detector.detect(frame, ts) if pose_detector else None
-            # DISABLED(video-sequence): body-movement classification.
-            # raw_move = classifier.classify(landmarks, now, aspect=fw / fh) if pose_detector else None
-            # body = body_stab.update(raw_move, now)
-
-            steps = detect_steps(hand_det, landmarks, aspect=fw / fh)
-            playhead = sequence.update(steps, now)
-
-            # The skeleton goes under the images so it doesn't cover them.
-            if show_skeleton and landmarks is not None:
-                draw_skeleton(frame, landmarks, POSE_CONNECTIONS)
-            # DISABLED(video-sequence): image overlays.
-            # body_layer.draw(frame, body, body_stab.active_since, now)
-            # hand_layer.draw(frame, hand, hand_stab.active_since, now)
-            if playhead is not None:
-                label = f"Frozen {sequence.frozen_for(now):.1f} s" if sequence.state == FROZEN else None
-                player.draw(frame, playhead, args.video_size, label)
-
-            if debug:
-                draw_debug(frame, hand_det, steps, sequence)
+            if active is None:
+                # Detection is skipped in the menu: nothing uses it and it costs most of the frame time.
+                menu.draw(frame)
+            else:
+                ts = int((now - start) * 1000)
+                hand_det = hand_detector.detect(frame, ts) if hand_detector else None
+                landmarks = pose_detector.detect(frame, ts) if pose_detector else None
+                # The skeleton goes under the images and the video so it doesn't cover them.
+                if show_skeleton and landmarks is not None:
+                    draw_skeleton(frame, landmarks, POSE_CONNECTIONS)
+                lines = modes[active].process(frame, hand_det, landmarks, now)
+                if debug:
+                    draw_debug(frame, hand_det, [f"mode: {active}", *lines])
 
             cv2.imshow(WINDOW, frame)
             key = cv2.waitKey(1) & 0xFF
             if key in (ord("q"), 27):
                 break
+            if active is None:
+                picked = menu.choice(key)
+                if picked is not None:
+                    modes[picked].reset()
+                    active = picked
+            elif key == ord("m"):
+                active = None
             if key == ord("f"):
                 fullscreen = not fullscreen
                 set_fullscreen(fullscreen)
@@ -226,7 +297,8 @@ def main() -> None:
         if pose_detector:
             pose_detector.close()
         cap.release()
-        player.close()
+        if POLNAREFF in modes:
+            modes[POLNAREFF].close()
         cv2.destroyAllWindows()
 
 

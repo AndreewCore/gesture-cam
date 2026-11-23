@@ -12,12 +12,10 @@ from .overlay import fit_height
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".mkv", ".webm", ".avi")
 
 
-def find_video(folder: Path) -> Path:
-    """Return the first video in `folder` (alphabetically)."""
+def find_video(folder: Path) -> Path | None:
+    """Return the first video in `folder` (alphabetically), or None if there isn't one."""
     videos = sorted(p for p in folder.glob("*") if p.suffix.lower() in VIDEO_EXTENSIONS)
-    if not videos:
-        raise SystemExit(f"No video found in {folder}. Put one there or pass --video PATH.")
-    return videos[0]
+    return videos[0] if videos else None
 
 
 class VideoPlayer:
@@ -27,7 +25,7 @@ class VideoPlayer:
         """Open the video and read its fps and length."""
         self._cap = cv2.VideoCapture(str(path))
         if not self._cap.isOpened():
-            raise SystemExit(f"Could not open video {path}")
+            raise ValueError(f"Could not open video {path}")
         self.fps = self._cap.get(cv2.CAP_PROP_FPS) or 30.0
         self.frame_count = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.duration = self.frame_count / self.fps

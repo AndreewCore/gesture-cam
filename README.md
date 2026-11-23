@@ -1,12 +1,17 @@
 # Gesture Cam
 
-Opens your camera and plays a video **in step with a gesture sequence**: the video advances while you repeat, in order, the gestures it shows.
+Opens your camera with a menu to pick one of two modes:
 
-> **Note:** the hand-gesture and body-movement images described below are temporarily **disabled** (commented out in `main.py` with the `DISABLED(video-sequence)` marker) so they don't overlap with the sequence. The skeleton is still drawn.
+| Key | Mode | What it does |
+|---|---|---|
+| `1` | **Gestos** | Overlays images for hand gestures (center) and body movements (top) |
+| `2` | **Polnareff** | Plays a video in step with a gesture sequence: the video advances while you repeat, in order, the gestures it shows |
 
-## Video sequence
+Pick a mode by clicking its card or pressing its number. `M` goes back to the menu from either mode. `--mode gestos` or `--mode polnareff` skips the menu.
 
-Put a video in `videos/` (the first one alphabetically is used, or pass `--video PATH`). Videos aren't committed to the repo. The sequence follows the first 4 s of the *Manly Handshake* clip:
+## Polnareff mode
+
+Put a video in `videos/` (the first one alphabetically is used, or pass `--video PATH`). Videos aren't committed to the repo; without one the Polnareff card shows as unavailable. The sequence follows the first 4 s of the *Manly Handshake* clip:
 
 | # | Gesture | Video stretch | How it's detected |
 |---|---|---|---|
@@ -24,9 +29,9 @@ Put a video in `videos/` (the first one alphabetically is used, or pass `--video
 
 The steps and timings live in `STEPS` in `sequence.py`; the rules in `sequence_rules.py`.
 
-## Image overlays (disabled)
+## Gestos mode
 
-The app can also overlay images based on what you do:
+Overlays images based on what you do:
 
 - **Hand gestures** (thumbs up, V sign, fist…) → image in the **center**.
 - **Body movements** (arms up, T-pose, wave, jump…) → image at the **top**, with your **skeleton** drawn over the video.
@@ -40,15 +45,19 @@ uv sync
 uv run gesture-cam
 ```
 
-On first run it downloads the MediaPipe models to `models/`.
+On first run it downloads the MediaPipe models to `models/` and creates sample images in `images/`.
 
 ### Options
 
 | Option | Effect |
 |---|---|
+| `--mode gestos` | Start straight in a mode (`gestos` / `polnareff`) instead of the menu |
 | `--camera 1` | Use another camera |
 | `--windowed` | Start in a window instead of fullscreen |
 | `--min-score 0.7` | Minimum confidence for hand gestures |
+| `--size 0.5` | Hand image height, relative to the video (Gestos) |
+| `--body-size 0.3` | Body image height (Gestos) |
+| `--images other/folder` | Use a different images folder (Gestos) |
 | `--video path.mp4` | Sequence video (default: first video in `videos/`) |
 | `--video-size 0.4` | Video window height (relative to the camera) |
 | `--no-hands` / `--no-pose` | Turn off one of the two detections (some sequence steps stop working) |
@@ -57,10 +66,12 @@ On first run it downloads the MediaPipe models to `models/`.
 
 | Key | Action |
 |---|---|
+| `1` / `2` | Pick a mode (in the menu) |
+| `M` | Back to the menu |
 | `Q` / `Esc` | Quit |
 | `F` | Toggle fullscreen |
 | `S` | Show/hide the skeleton |
-| `D` | Debug mode (hand points, raw hand gesture, detected steps and sequence state) |
+| `D` | Debug mode (hand points, raw detections; in Polnareff also the detected steps and sequence state) |
 
 ## Images
 
@@ -110,4 +121,4 @@ To avoid flicker, each channel (hand and body) has its own **stabilizer**: a res
 uv run pytest
 ```
 
-They check the movement rules, the sequence step rules and the sequence state machine with synthetic skeletons, hands and a simulated clock, no camera needed.
+They check the movement rules, the sequence step rules, the sequence state machine and the menu with synthetic skeletons, hands and a simulated clock, no camera needed.
