@@ -1,6 +1,32 @@
 # Gesture Cam
 
-Opens your camera and overlays images based on what you do:
+Opens your camera and plays a video **in step with a gesture sequence**: the video advances while you repeat, in order, the gestures it shows.
+
+> **Note:** the hand-gesture and body-movement images described below are temporarily **disabled** (commented out in `main.py` with the `DISABLED(video-sequence)` marker) so they don't overlap with the sequence. The skeleton is still drawn.
+
+## Video sequence
+
+Put a video in `videos/` (the first one alphabetically is used, or pass `--video PATH`). Videos aren't committed to the repo. The sequence follows the first 4 s of the *Manly Handshake* clip:
+
+| # | Gesture | Video stretch | How it's detected |
+|---|---|---|---|
+| 1 | ✋✋ Both hands open | 0.00 – 0.25 s | Both hands classified as `Open_Palm` |
+| 2 | 🙏 Hands pressed together at the chest | 0.25 – 0.85 s | Pose: wrists together, between nose and waist |
+| 3 | ✌️ V sign | 0.85 – 1.45 s | `Victory` from the hand model |
+| 4 | 👌 OK sign | 1.45 – 2.20 s | Hand points: thumb and index tips touching, other three fingers extended |
+| 5 | 🫡 Salute (flat hand at the forehead) | 2.20 – 4.00 s | Pose: index finger above the nose and near the head, elbow raised |
+
+- The video appears in a corner (picture-in-picture) when you start step 1 and plays in real time while you hold the current gesture (or move on to the next one).
+- If you stop, or the detector loses the gesture, the frame **freezes** ("Frozen 1.2 s"). Pick the gesture back up within **3 s** and it continues; otherwise the video hides and the sequence starts over.
+- Holding a gesture after its stretch has played counts as stopping: you have to move on to the next one.
+- After the salute, the rest of the video plays on its own (no sound: OpenCV doesn't play audio) and then hides.
+- `D` (debug) shows the steps detected each frame and the sequence state.
+
+The steps and timings live in `STEPS` in `sequence.py`; the rules in `sequence_rules.py`.
+
+## Image overlays (disabled)
+
+The app can also overlay images based on what you do:
 
 - **Hand gestures** (thumbs up, V sign, fist…) → image in the **center**.
 - **Body movements** (arms up, T-pose, wave, jump…) → image at the **top**, with your **skeleton** drawn over the video.
@@ -14,7 +40,7 @@ uv sync
 uv run gesture-cam
 ```
 
-On first run it downloads the MediaPipe models to `models/` and creates sample images in `images/`.
+On first run it downloads the MediaPipe models to `models/`.
 
 ### Options
 
@@ -23,10 +49,9 @@ On first run it downloads the MediaPipe models to `models/` and creates sample i
 | `--camera 1` | Use another camera |
 | `--windowed` | Start in a window instead of fullscreen |
 | `--min-score 0.7` | Minimum confidence for hand gestures |
-| `--size 0.5` | Hand image height (relative to the video) |
-| `--body-size 0.3` | Body image height |
-| `--no-hands` / `--no-pose` | Turn off one of the two detections (if it runs slowly) |
-| `--images other/folder` | Use a different images folder |
+| `--video path.mp4` | Sequence video (default: first video in `videos/`) |
+| `--video-size 0.4` | Video window height (relative to the camera) |
+| `--no-hands` / `--no-pose` | Turn off one of the two detections (some sequence steps stop working) |
 
 ### Keys
 
@@ -35,7 +60,7 @@ On first run it downloads the MediaPipe models to `models/` and creates sample i
 | `Q` / `Esc` | Quit |
 | `F` | Toggle fullscreen |
 | `S` | Show/hide the skeleton |
-| `D` | Debug mode (hand points and raw hand and body detections) |
+| `D` | Debug mode (hand points, raw hand gesture, detected steps and sequence state) |
 
 ## Images
 
@@ -85,4 +110,4 @@ To avoid flicker, each channel (hand and body) has its own **stabilizer**: a res
 uv run pytest
 ```
 
-They check the movement rules with synthetic skeletons, no camera needed.
+They check the movement rules, the sequence step rules and the sequence state machine with synthetic skeletons, hands and a simulated clock, no camera needed.

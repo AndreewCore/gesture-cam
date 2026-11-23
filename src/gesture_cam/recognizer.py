@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import mediapipe as mp
@@ -30,11 +30,13 @@ HAND_GESTURES = (
 
 @dataclass
 class Detection:
-    """One frame's result: winning gesture, its confidence, and landmarks for each hand."""
+    """One frame's result: winning gesture, its confidence, and landmarks and gesture for each hand."""
 
     gesture: str | None
     score: float
     hands: list[list[tuple[float, float]]]
+    # Aligned with `hands`; rules like "both palms open" need each hand's gesture, not just the best one.
+    hand_gestures: list[str | None] = field(default_factory=list)
 
 
 def ensure_model(path: Path, url: str) -> Path:
@@ -74,17 +76,18 @@ class GestureDetector:
         result = self._recognizer.recognize_for_video(image, timestamp_ms)
 
         best, best_score = None, 0.0
+        per_hand: list[str | None] = []
         for categories in result.gestures:
-            if not categories:
-                continue
-            top = categories[0]
-            if top.category_name in HAND_GESTURES and top.score > best_score:
+            top = categories[0] if categories else None
+            valid = top is not None and top.category_name in HAND_GESTURES
+            per_hand.append(top.category_name if valid and top.score >= self.min_score else None)
+            if valid and top.score > best_score:
                 best, best_score = top.category_name, top.score
 
         hands = [[(lm.x, lm.y) for lm in hand] for hand in result.hand_landmarks]
         if best_score < self.min_score:
             best = None
-        return Detection(best, best_score, hands)
+        return Detection(best, best_score, hands, per_hand)
 
     def close(self) -> None:
         """Release the recognizer's native resources."""
