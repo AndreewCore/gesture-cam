@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 models/*.task
 CLAUDE.md
+videos/*
+!videos/.gitkeep
