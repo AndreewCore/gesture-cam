@@ -1,13 +1,14 @@
 # Gesture Cam
 
-Opens your camera with a menu to pick one of two modes:
+Opens your camera with a menu to pick a mode:
 
 | Key | Mode | What it does |
 |---|---|---|
 | `1` | **Gestos** | Overlays images for hand gestures (center) and body movements (top) |
 | `2` | **Polnareff** | Plays a video in step with a gesture sequence: the video advances while you repeat, in order, the gestures it shows |
+| `3` | **Snake** | Snake game over the camera, steered by pointing with your index finger |
 
-Pick a mode by clicking its card or pressing its number. `M` goes back to the menu from either mode. `--mode gestos` or `--mode polnareff` skips the menu.
+Pick a mode by clicking its card or pressing its number. `M` goes back to the menu from either mode. `--mode gestos`, `--mode polnareff` or `--mode snake` skips the menu.
 
 ## Polnareff mode
 
@@ -28,6 +29,16 @@ Put a video in `videos/` (the first one alphabetically is used, or pass `--video
 - `D` (debug) shows the steps detected each frame and the sequence state.
 
 The steps and timings live in `STEPS` in `sequence.py`; the rules in `sequence_rules.py`.
+
+## Snake mode
+
+The snake goes toward the cell your **index finger** points at (the right hand; the left one if the right isn't visible) and **stops** when its head reaches it or when no hand is visible: it only moves while you are steering it.
+
+- One apple at a time appears in a random free cell. Eating it grows the snake by one segment and adds a point.
+- Running into its own body is **game over**: the score shows for 2 s and a new game starts.
+- The grid fills the window and adapts when you resize it or go fullscreen (square cells, about 18 along the short side); the game keeps going.
+- The camera stays visible behind the game: grid, snake and apple are drawn semi-transparent.
+- `--snake-speed 10` changes the speed (cells per second, default 8).
 
 ## Gestos mode
 
@@ -51,7 +62,7 @@ On first run it downloads the MediaPipe models to `models/` and creates sample i
 
 | Option | Effect |
 |---|---|
-| `--mode gestos` | Start straight in a mode (`gestos` / `polnareff`) instead of the menu |
+| `--mode gestos` | Start straight in a mode (`gestos` / `polnareff` / `snake`) instead of the menu |
 | `--camera 1` | Use another camera |
 | `--windowed` | Start in a window instead of fullscreen |
 | `--min-score 0.7` | Minimum confidence for hand gestures |
@@ -60,13 +71,14 @@ On first run it downloads the MediaPipe models to `models/` and creates sample i
 | `--images other/folder` | Use a different images folder (Gestos) |
 | `--video path.mp4` | Sequence video (default: first video in `videos/`) |
 | `--video-size 0.4` | Video window height (relative to the camera) |
+| `--snake-speed 10` | Snake speed in cells per second (Snake) |
 | `--no-hands` / `--no-pose` | Turn off one of the two detections (some sequence steps stop working) |
 
 ### Keys
 
 | Key | Action |
 |---|---|
-| `1` / `2` | Pick a mode (in the menu) |
+| `1` / `2` / `3` | Pick a mode (in the menu) |
 | `M` | Back to the menu |
 | `Q` / `Esc` | Quit |
 | `F` | Toggle fullscreen |
@@ -121,4 +133,4 @@ To avoid flicker, each channel (hand and body) has its own **stabilizer**: a res
 uv run pytest
 ```
 
-They check the movement rules, the sequence step rules, the sequence state machine and the menu with synthetic skeletons, hands and a simulated clock, no camera needed.
+They check the movement rules, the sequence step rules, the sequence state machine, the Snake game logic and the menu with synthetic skeletons, hands and a simulated clock, no camera needed.
