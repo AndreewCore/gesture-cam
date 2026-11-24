@@ -37,6 +37,8 @@ class Detection:
     hands: list[list[tuple[float, float]]]
     # Aligned with `hands`; rules like "both palms open" need each hand's gesture, not just the best one.
     hand_gestures: list[str | None] = field(default_factory=list)
+    # "Left"/"Right" per hand, aligned with `hands`; picks the main hand in Snake.
+    handedness: list[str] = field(default_factory=list)
 
 
 def ensure_model(path: Path, url: str) -> Path:
@@ -85,9 +87,11 @@ class GestureDetector:
                 best, best_score = top.category_name, top.score
 
         hands = [[(lm.x, lm.y) for lm in hand] for hand in result.hand_landmarks]
+        # MediaPipe labels hands assuming a mirrored selfie image, which is what we feed it.
+        sides = [h[0].category_name if h else "" for h in result.handedness]
         if best_score < self.min_score:
             best = None
-        return Detection(best, best_score, hands, per_hand)
+        return Detection(best, best_score, hands, per_hand, sides)
 
     def close(self) -> None:
         """Release the recognizer's native resources."""
