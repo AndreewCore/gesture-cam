@@ -3,6 +3,7 @@
 Modes:
 - Gestos: images for hand gestures (center) and body movements (top).
 - Polnareff: plays the video in step with its gesture sequence.
+- Snake: a snake that follows the main hand's index finger, over the camera.
 """
 
 from __future__ import annotations
@@ -22,16 +23,18 @@ from .pose import POSE_CONNECTIONS, PoseDetector
 from .recognizer import HAND_GESTURES, GestureDetector
 from .sequence import FROZEN, STEPS, VideoSequence
 from .sequence_rules import detect_steps
+from .snake_mode import SnakeMode
 from .video import VideoPlayer, find_video
 
 WINDOW = "Gesture Cam"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FADE_SECONDS = 0.2
 
-GESTOS, POLNAREFF = "gestos", "polnareff"
+GESTOS, POLNAREFF, SNAKE = "gestos", "polnareff", "snake"
 MENU_OPTIONS = [
     MenuOption(GESTOS, "Gestos", "Hand & body images", "1"),
     MenuOption(POLNAREFF, "Polnareff", "Follow the video's gestures", "2"),
+    MenuOption(SNAKE, "Snake", "Point with your index finger", "3"),
 ]
 
 
@@ -94,6 +97,8 @@ class ImageLayer:
 class GesturesMode:
     """'Gestos' mode: an image for the current hand gesture and another for the body movement."""
 
+    uses_pose = True
+
     def __init__(self, images: dict[str, np.ndarray], hand_size: float, body_size: float):
         """Split the images into the hand layer (center) and the body layer (top)."""
         self.hand_layer = ImageLayer({k: v for k, v in images.items() if k in HAND_GESTURES}, hand_size, "center")
@@ -107,19 +112,21 @@ class GesturesMode:
         self.body_stab = GestureStabilizer(frames_to_activate=3, hold_seconds=0.4)
         self.classifier = BodyMoveClassifier()
 
-    def process(self, frame: np.ndarray, hand_det, landmarks, now: float) -> list[str]:
-        """Update the stabilizers, draw the images and return the debug lines."""
+    def process(self, frame: np.ndarray, hand_det, landmarks, now: float) -> tuple[np.ndarray, list[str]]:
+        """Update the stabilizers, draw the images and return the frame and the debug lines."""
         fh, fw = frame.shape[:2]
         hand = self.hand_stab.update(hand_det.gesture if hand_det else None, now)
         raw_move = self.classifier.classify(landmarks, now, aspect=fw / fh)
         body = self.body_stab.update(raw_move, now)
         self.body_layer.draw(frame, body, self.body_stab.active_since, now)
         self.hand_layer.draw(frame, hand, self.hand_stab.active_since, now)
-        return [f"body: {raw_move or '-'}"]
+        return frame, [f"body: {raw_move or '-'}"]
 
 
 class PolnareffMode:
     """'Polnareff' mode: the video plays in a corner while the person repeats its gestures."""
+
+    uses_pose = True
 
     def __init__(self, player: VideoPlayer, video_size: float):
         """`video_size` is the video window's height relative to the camera frame."""
@@ -131,8 +138,8 @@ class PolnareffMode:
         """Hide the video and wait for the first gesture again."""
         self.sequence.reset()
 
-    def process(self, frame: np.ndarray, hand_det, landmarks, now: float) -> list[str]:
-        """Advance the sequence, draw the video and return the debug lines."""
+    def process(self, frame: np.ndarray, hand_det, landmarks, now: float) -> tuple[np.ndarray, list[str]]:
+        """Advance the sequence, draw the video and return the frame and the debug lines."""
         fh, fw = frame.shape[:2]
         steps = detect_steps(hand_det, landmarks, aspect=fw / fh)
         playhead = self.sequence.update(steps, now)
@@ -140,7 +147,7 @@ class PolnareffMode:
             label = f"Frozen {self.sequence.frozen_for(now):.1f} s" if self.sequence.state == FROZEN else None
             self.player.draw(frame, playhead, self.video_size, label)
         seq = self.sequence
-        return [
+        return frame, [
             f"steps: {', '.join(sorted(steps)) or '-'}",
             f"sequence: {seq.state} - step {seq.step_index + 1}/{len(STEPS)} ({STEPS[seq.step_index].name})",
         ]
@@ -152,14 +159,15 @@ class PolnareffMode:
 
 def parse_args() -> argparse.Namespace:
     """Command-line options."""
-    p = argparse.ArgumentParser(description="Camera with gesture modes: Gestos (images) and Polnareff (video).")
-    p.add_argument("--mode", choices=(GESTOS, POLNAREFF), help="Start in this mode instead of the menu")
+    p = argparse.ArgumentParser(description="Camera with gesture modes: Gestos (images), Polnareff (video), Snake.")
+    p.add_argument("--mode", choices=(GESTOS, POLNAREFF, SNAKE), help="Start in this mode instead of the menu")
     p.add_argument("--camera", type=int, default=0, help="Camera index (default 0)")
     p.add_argument("--images", type=Path, default=PROJECT_ROOT / "images", help="Images folder (Gestos)")
     p.add_argument("--size", type=float, default=0.35, help="Hand image height relative to the video (Gestos)")
     p.add_argument("--body-size", type=float, default=0.25, help="Body image height relative to the video (Gestos)")
     p.add_argument("--video", type=Path, default=None, help="Polnareff video (default: first video in videos/)")
     p.add_argument("--video-size", type=float, default=0.35, help="Video window height relative to the camera")
+    p.add_argument("--snake-speed", type=float, default=8.0, help="Snake speed in cells per second")
     p.add_argument("--model", type=Path, default=PROJECT_ROOT / "models" / "gesture_recognizer.task")
     p.add_argument("--pose-model", type=Path, default=PROJECT_ROOT / "models" / "pose_landmarker_full.task")
     p.add_argument("--min-score", type=float, default=0.6, help="Minimum gesture confidence (0-1)")
@@ -191,14 +199,24 @@ def draw_debug(frame, hand_detection, mode_lines: list[str]) -> None:
         cv2.putText(frame, text, org, cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2, cv2.LINE_AA)
 
 
-def build_modes(args) -> tuple[dict[str, GesturesMode | PolnareffMode], dict[str, str]]:
+def window_size() -> tuple[int, int] | None:
+    """Current size of the window's drawing area, or None if the backend can't report it."""
+    try:
+        _, _, w, h = cv2.getWindowImageRect(WINDOW)
+    except cv2.error:
+        return None
+    return (w, h) if w > 0 and h > 0 else None
+
+
+def build_modes(args) -> tuple[dict[str, GesturesMode | PolnareffMode | SnakeMode], dict[str, str]]:
     """Create every mode that can run; return them plus the reason each missing one is unavailable."""
     names = HAND_GESTURES + BODY_MOVES
     created = ensure_placeholders(args.images, names)
     if created:
         print(f"Sample images created in {args.images}: {', '.join(created)}")
-    modes: dict[str, GesturesMode | PolnareffMode] = {
+    modes: dict[str, GesturesMode | PolnareffMode | SnakeMode] = {
         GESTOS: GesturesMode(load_gesture_images(args.images, names), args.size, args.body_size),
+        SNAKE: SnakeMode(window_size, args.snake_speed),
     }
     unavailable: dict[str, str] = {}
 
@@ -224,6 +242,8 @@ def main() -> None:
         print("Warning: with --no-hands or --no-pose some Polnareff steps can't be detected.")
 
     modes, unavailable = build_modes(args)
+    if args.no_hands:
+        unavailable[SNAKE] = "Needs hand detection"
     if args.mode in unavailable:
         raise SystemExit(f"Mode {args.mode} is unavailable: {unavailable[args.mode]}")
     menu = Menu(MENU_OPTIONS)
@@ -260,15 +280,18 @@ def main() -> None:
                 # Detection is skipped in the menu: nothing uses it and it costs most of the frame time.
                 menu.draw(frame)
             else:
+                mode = modes[active]
                 ts = int((now - start) * 1000)
                 hand_det = hand_detector.detect(frame, ts) if hand_detector else None
-                landmarks = pose_detector.detect(frame, ts) if pose_detector else None
+                landmarks = pose_detector.detect(frame, ts) if pose_detector and mode.uses_pose else None
                 # The skeleton goes under the images and the video so it doesn't cover them.
                 if show_skeleton and landmarks is not None:
                     draw_skeleton(frame, landmarks, POSE_CONNECTIONS)
-                lines = modes[active].process(frame, hand_det, landmarks, now)
+                # A mode may return a new image (Snake draws on a canvas sized to the window).
+                frame, lines = mode.process(frame, hand_det, landmarks, now)
                 if debug:
-                    draw_debug(frame, hand_det, [f"mode: {active}", *lines])
+                    sides = ", ".join(hand_det.handedness) if hand_det and hand_det.handedness else "-"
+                    draw_debug(frame, hand_det if mode.uses_pose else None, [f"mode: {active}  hands: {sides}", *lines])
 
             cv2.imshow(WINDOW, frame)
             key = cv2.waitKey(1) & 0xFF
